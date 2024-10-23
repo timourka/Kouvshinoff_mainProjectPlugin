@@ -1,4 +1,5 @@
 ﻿using PluginsConventionLibraryNet60;
+using System.Reflection;
 
 namespace WinFormsAppByPluginsNet60
 {
@@ -12,19 +13,95 @@ namespace WinFormsAppByPluginsNet60
             _plugins = LoadPlugins();
             _selectedPlugin = string.Empty;
         }
+
+        private void CreatePluginsMenu(Dictionary<string, IPluginsConvention> plugins)
+        {
+
+            var componentsMenuItem = ControlsStripMenuItem;
+            componentsMenuItem.DropDownItems.Clear();
+
+            // Проходим по каждому плагину и создаем для него пункт меню
+            foreach (var plugin in plugins)
+            {
+                var pluginMenuItem = new ToolStripMenuItem(plugin.Key); // plugin.Key - это PluginName
+
+                // Привязываем обработчик события для каждого пункта меню
+                pluginMenuItem.Click += (sender, e) =>
+                {
+                    // Получаем UserControl от плагина
+                    var control = plugin.Value.GetControl;
+
+                    // Очищаем panelControl и добавляем новый контрол
+                    panelControl.Controls.Clear();
+                    control.Dock = DockStyle.Fill; // Заполняем весь panelControl
+                    panelControl.Controls.Add(control);
+                    _selectedPlugin = plugin.Key;
+                    ActionsToolStripMenuItem.Enabled = true;
+                    DocsToolStripMenuItem.Enabled = true;
+                };
+
+                // Добавляем пункт меню в меню "Компоненты"
+                componentsMenuItem.DropDownItems.Add(pluginMenuItem);
+            }
+
+            // Добавляем меню "Компоненты" в menuStrip
+            menuStrip.Items.Add(componentsMenuItem);
+        }
+
         private Dictionary<string, IPluginsConvention> LoadPlugins()
         {
-            // TODO Заполнить IPluginsConvention
-            // TODO Заполнить пункт меню "Компоненты" на основе IPluginsConvention.PluginName
-            // TODO Например, создавать ToolStripMenuItem, привязывать к ним обработку событий и добавлять в menuStrip
-            // TODO При выборе пункта меню получать UserControl и заполнять элемент panelControl этим контролом на всю площадь
-            // Пример: panelControl.Controls.Clear(); panelControl.Controls.Add(ctrl);
-            return new Dictionary<string, IPluginsConvention>();
+            // Создаем словарь для хранения плагинов по их имени
+            var plugins = new Dictionary<string, IPluginsConvention>();
+
+            // Путь к папке с плагинами
+            string pluginsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "plugins");
+
+            // Проверяем, что папка существует
+            if (!Directory.Exists(pluginsPath))
+            {
+                Directory.CreateDirectory(pluginsPath); // Создаем папку, если она не существует
+            }
+
+            // Получаем все DLL из папки
+            string[] pluginFiles = Directory.GetFiles(pluginsPath, "*.dll");
+
+            // Загружаем каждую DLL
+            foreach (string pluginFile in pluginFiles)
+            {
+                try
+                {
+                    // Загружаем сборку
+                    var assembly = Assembly.LoadFrom(pluginFile);
+
+                    // Ищем все типы, которые реализуют интерфейс IPluginsConvention
+                    var pluginTypes = assembly.GetTypes()
+                                              .Where(t => typeof(IPluginsConvention).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
+
+                    // Для каждого найденного типа создаем экземпляр и добавляем в словарь
+                    foreach (var type in pluginTypes)
+                    {
+                        // Создаем экземпляр плагина
+                        var pluginInstance = (IPluginsConvention)Activator.CreateInstance(type);
+
+                        // Добавляем в словарь по имени плагина
+                        plugins.Add(pluginInstance.PluginName, pluginInstance);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+
+            // Создаем меню компонентов
+            CreatePluginsMenu(plugins);
+
+            // Возвращаем словарь плагинов
+            return plugins;
         }
         private void FormMain_KeyDown(object sender, KeyEventArgs e)
         {
-            if (string.IsNullOrEmpty(_selectedPlugin) ||
-            !_plugins.ContainsKey(_selectedPlugin))
+            if (string.IsNullOrEmpty(_selectedPlugin) || !_plugins.ContainsKey(_selectedPlugin))
             {
                 return;
             }
@@ -63,7 +140,7 @@ namespace WinFormsAppByPluginsNet60
         }
         private void AddNewElement()
         {
-            var form = _plugins[_selectedPlugin].GetForm(null);
+            var form = _plugins[_selectedPlugin].GetForm(new PluginsConventionElement() { Id = -1});
             if (form != null && form.ShowDialog() == DialogResult.OK)
             {
                 _plugins[_selectedPlugin].ReloadData();
@@ -105,56 +182,57 @@ namespace WinFormsAppByPluginsNet60
         }
         private void CreateSimpleDoc()
         {
-            // TODO узнать где сохранять
-            if (_plugins[_selectedPlugin].CreateSimpleDocument(new
-            PluginsConventionSaveDocument()))
+            using var dialog = new SaveFileDialog { Filter = "xlsx|*.xlsx" };
+            if (dialog.ShowDialog() == DialogResult.OK)
             {
-                MessageBox.Show("Документ сохранен", "Создание документа", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            else
-            {
-                MessageBox.Show("Ошибка при создании документа",
-                "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (_plugins[_selectedPlugin].CreateSimpleDocument(new PluginsConventionSaveDocument() { FileName = dialog.FileName}))
+                {
+                    MessageBox.Show("Документ сохранен", "Создание документа", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show("Ошибка при создании документа",
+                    "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
         private void CreateTableDoc()
         {
-            // TODO узнать где сохранять
-            if (_plugins[_selectedPlugin].CreateTableDocument(new
-            PluginsConventionSaveDocument()))
+            using var dialog = new SaveFileDialog { Filter = "doc|*.docx" };
+            if (dialog.ShowDialog() == DialogResult.OK)
             {
-                MessageBox.Show("Документ сохранен", "Создание документа", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            else
-            {
-                MessageBox.Show("Ошибка при создании документа",
-                "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (_plugins[_selectedPlugin].CreateTableDocument(new PluginsConventionSaveDocument() { FileName = dialog.FileName }))
+                {
+                    MessageBox.Show("Документ сохранен", "Создание документа", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show("Ошибка при создании документа",
+                    "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
         private void CreateChartDoc()
         {
-            // TODO узнать где сохранять
-            if (_plugins[_selectedPlugin].CreateChartDocument(new
-            PluginsConventionSaveDocument()))
+            using var dialog = new SaveFileDialog { Filter = "pdf|*.pdf" };
+            if (dialog.ShowDialog() == DialogResult.OK)
             {
-                MessageBox.Show("Документ сохранен", "Создание документа", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            else
-            {
-                MessageBox.Show("Ошибка при создании документа",
-                "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (_plugins[_selectedPlugin].CreateChartDocument(new PluginsConventionSaveDocument() { FileName = dialog.FileName }))
+                {
+                    MessageBox.Show("Документ сохранен", "Создание документа", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show("Ошибка при создании документа",
+                    "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
-        private void ThesaurusToolStripMenuItem_Click(object sender,
-        EventArgs e) => ShowThesaurus();
-        private void AddElementToolStripMenuItem_Click(object sender,
-        EventArgs e) => AddNewElement();
-        private void UpdElementToolStripMenuItem_Click(object sender,
-        EventArgs e) => UpdateElement();
-        private void DelElementToolStripMenuItem_Click(object sender,
-        EventArgs e) => DeleteElement();
-        private void SimpleDocToolStripMenuItem_Click(object sender,
-        EventArgs e) => CreateSimpleDoc();
+        private void ThesaurusToolStripMenuItem_Click(object sender, EventArgs e) => ShowThesaurus();
+        private void AddElementToolStripMenuItem_Click(object sender, EventArgs e) => AddNewElement();
+        private void UpdElementToolStripMenuItem_Click(object sender, EventArgs e) => UpdateElement();
+        private void DelElementToolStripMenuItem_Click(object sender, EventArgs e) => DeleteElement();
+        private void SimpleDocToolStripMenuItem_Click(object sender, EventArgs e) => CreateSimpleDoc();
         private void TableDocToolStripMenuItem_Click(object sender, EventArgs e) => CreateTableDoc();
         private void ChartDocToolStripMenuItem_Click(object sender, EventArgs e) => CreateChartDoc();
     }
